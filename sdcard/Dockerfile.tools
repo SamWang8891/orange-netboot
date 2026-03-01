@@ -1,0 +1,14 @@
+FROM alpine:3.20
+
+RUN apk add --no-cache \
+    bash \
+    u-boot-tools \
+    dosfstools \
+    e2fsprogs \
+    parted \
+    sfdisk \
+    losetup \
+    rsync \
+    xz
+
+WORKDIR /work

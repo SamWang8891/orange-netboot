@@ -1,0 +1,20 @@
+services:
+  netboot:
+    build: ../Downloads/netboot-manager 6
+    container_name: netboot-manager
+    restart: unless-stopped
+    privileged: true
+    ports:
+      - "69:69/udp"    # TFTP
+      - "8080:8080"    # Web UI
+    volumes:
+      - ./data/tftp:/srv/tftp        # TFTP root (PXE configs, kernel, DTB per node)
+      - /srv/nfs:/srv/nfs:ro         # NFS rootfs on host (read-only for status checks)
+      - ./data/uploads:/uploads      # Image uploads
+      - ./data/db:/db                # Node database
+    environment:
+      - TFTP_DIR=/srv/tftp
+      - NFS_DIR=/srv/nfs
+      - UPLOAD_DIR=/uploads
+      - DB_DIR=/db
+      - SERVER_IP=${SERVER_IP:-}

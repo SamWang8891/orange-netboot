@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}Terminal: {{ node.name }} — Orange Netboot{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/">Nodes</a></li>
+        <li class="breadcrumb-item"><a href="/node/{{ node.name }}">{{ node.name }}</a></li>
+        <li class="breadcrumb-item active">Terminal</li>
+    </ol>
+</nav>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0"><i class="bi bi-terminal-fill"></i> {{ node.name }} <small class="text-muted">({{ node.ip }})</small></h4>
+    <div>
+        <span id="connStatus" class="badge bg-secondary me-2">Connecting...</span>
+        <button class="btn btn-sm btn-outline-secondary" onclick="reconnect()"><i class="bi bi-arrow-clockwise"></i> Reconnect</button>
+        <a href="/node/{{ node.name }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Back</a>
+    </div>
+</div>
+
+<div class="mb-2 d-flex gap-2 align-items-center" style="font-size:0.85rem;">
+    <label>User:</label>
+    <input type="text" id="sshUser" value="root" class="form-control form-control-sm mono" style="width:100px;">
+    <label>Password:</label>
+    <input type="password" id="sshPass" value="1234" class="form-control form-control-sm mono" style="width:120px;">
+    <button class="btn btn-sm btn-primary" onclick="reconnect()">Connect</button>
+</div>
+
+<div id="terminal" style="height: calc(100vh - 280px); min-height: 400px; border-radius: 6px; overflow: hidden;"></div>
+{% endblock %}
+
+{% block scripts %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js"></script>
+<script>
+const nodeIp = "{{ node.ip }}";
+const nodeName = "{{ node.name }}";
+let ws = null;
+let term = null;
+let fitAddon = null;
+
+function initTerminal() {
+    if (term) term.dispose();
+
+    term = new Terminal({
+        cursorBlink: true,
+        fontSize: 14,
+        fontFamily: '"Cascadia Code", "Fira Code", "JetBrains Mono", monospace',
+        theme: {
+            background: '#1a1a2e',
+            foreground: '#e0e0e0',
+            cursor: '#00ff88',
+            selectionBackground: '#44475a',
+        },
+        scrollback: 10000,
+    });
+
+    fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.loadAddon(new WebLinksAddon.WebLinksAddon());
+
+    term.open(document.getElementById('terminal'));
+    fitAddon.fit();
+
+    window.addEventListener('resize', () => fitAddon.fit());
+
+    // Observe terminal resize
+    const ro = new ResizeObserver(() => {
+        fitAddon.fit();
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(`\x1b[8;${term.rows};${term.cols}t`);
+        }
+    });
+    ro.observe(document.getElementById('terminal'));
+}
+
+function connect() {
+    const user = document.getElementById('sshUser').value;
+    const pass = document.getElementById('sshPass').value;
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url = `${proto}//${location.host}/ws/terminal/${nodeName}?user=${encodeURIComponent(user)}&pass=${encodeURIComponent(pass)}`;
+
+    if (ws) ws.close();
+
+    document.getElementById('connStatus').className = 'badge bg-warning me-2';
+    document.getElementById('connStatus').textContent = 'Connecting...';
+
+    ws = new WebSocket(url);
+
+    ws.onopen = () => {
+        document.getElementById('connStatus').className = 'badge bg-success me-2';
+        document.getElementById('connStatus').textContent = 'Connected';
+        // Send initial size
+        setTimeout(() => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(`\x1b[8;${term.rows};${term.cols}t`);
+            }
+        }, 500);
+    };
+
+    ws.onmessage = (e) => {
+        term.write(e.data);
+    };
+
+    ws.onclose = () => {
+        document.getElementById('connStatus').className = 'badge bg-danger me-2';
+        document.getElementById('connStatus').textContent = 'Disconnected';
+    };
+
+    ws.onerror = () => {
+        document.getElementById('connStatus').className = 'badge bg-danger me-2';
+        document.getElementById('connStatus').textContent = 'Error';
+    };
+
+    // Terminal input → WebSocket
+    term.onData((data) => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(data);
+        }
+    });
+}
+
+function reconnect() {
+    if (term) term.clear();
+    connect();
+}
+
+// Init
+initTerminal();
+connect();
+</script>
+{% endblock %}

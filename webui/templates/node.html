@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}{{ node.name }} — Orange Netboot{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/">Nodes</a></li>
+        <li class="breadcrumb-item active">{{ node.name }}</li>
+    </ol>
+</nav>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-motherboard"></i> {{ node.name }}</h2>
+    <div class="d-flex gap-2">
+        {% if node.ip and node.has_rootfs %}
+        <button class="btn btn-outline-success btn-sm" onclick="openTerminalFor('{{ node.name }}', '{{ node.ip }}')">
+            <i class="bi bi-terminal-fill"></i> Terminal
+        </button>
+        {% endif %}
+        <form method="POST" action="/node/{{ node.name }}/remove"
+              onsubmit="return confirm('Remove node {{ node.name }}?')">
+            <button type="submit" class="btn btn-outline-danger btn-sm"><i class="bi bi-trash"></i> Remove</button>
+        </form>
+    </div>
+</div>
+
+{# Warnings for missing items #}
+{% if not node.has_kernel or not node.has_initrd or not node.has_rootfs %}
+<div class="alert alert-warning">
+    <h6><i class="bi bi-exclamation-triangle"></i> Node not fully deployed</h6>
+    <p class="mb-2">Run this on the <strong>host</strong> to deploy boot files + rootfs:</p>
+    <pre class="bg-dark text-light p-2 rounded mb-0" style="font-size:0.85rem;">sudo ./server/deploy-rootfs.sh &lt;armbian.img&gt; {{ node.name }}{% if node.mac %} {{ node.mac }}{% endif %}</pre>
+</div>
+{% elif not node.has_pxe and not node.mac %}
+<div class="alert alert-info">
+    <h6><i class="bi bi-info-circle"></i> Set the MAC address</h6>
+    <p class="mb-0">Boot files are ready, but no per-board PXE config exists. Enter the board's MAC address below to create one.
+    Find the MAC in your <strong>router's DHCP leases</strong> after the board's first boot.</p>
+</div>
+{% endif %}
+
+<div class="row g-4">
+    <!-- Status -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-activity"></i> Status</div>
+            <div class="card-body">
+                <table class="table table-sm mb-0">
+                    <tr><td>Board</td><td>{{ node.board_type }}</td></tr>
+                    <tr><td>DTB</td><td><code>{{ node.dtb }}</code></td></tr>
+                    <tr><td>MAC</td><td><code>{{ node.mac or '— not set' }}</code></td></tr>
+                    <tr><td>IP</td><td><code>{{ node.ip or '— not set' }}</code></td></tr>
+                    <tr><td>Rootfs</td><td>{{ node.size }}</td></tr>
+                    <tr>
+                        <td>Kernel</td>
+                        <td><span class="{% if node.has_kernel %}status-ok{% else %}status-bad{% endif %}">
+                            <i class="bi bi-{% if node.has_kernel %}check-circle-fill{% else %}x-circle-fill{% endif %}"></i>
+                            {% if node.has_kernel %}OK{% else %}Missing{% endif %}
+                        </span></td>
+                    </tr>
+                    <tr>
+                        <td>Initrd</td>
+                        <td><span class="{% if node.has_initrd %}status-ok{% else %}status-bad{% endif %}">
+                            <i class="bi bi-{% if node.has_initrd %}check-circle-fill{% else %}x-circle-fill{% endif %}"></i>
+                            {% if node.has_initrd %}OK{% else %}Missing{% endif %}
+                        </span></td>
+                    </tr>
+                    <tr>
+                        <td>PXE config</td>
+                        <td><span class="{% if node.has_pxe %}status-ok{% elif not node.mac %}status-warn{% else %}status-bad{% endif %}">
+                            <i class="bi bi-{% if node.has_pxe %}check-circle-fill{% elif not node.mac %}exclamation-circle{% else %}x-circle-fill{% endif %}"></i>
+                            {% if node.has_pxe %}OK{% elif not node.mac %}Set MAC to create{% else %}Missing{% endif %}
+                        </span></td>
+                    </tr>
+                    <tr>
+                        <td>NFS rootfs</td>
+                        <td><span class="{% if node.has_rootfs %}status-ok{% else %}status-bad{% endif %}">
+                            <i class="bi bi-{% if node.has_rootfs %}check-circle-fill{% else %}x-circle-fill{% endif %}"></i>
+                            {% if node.has_rootfs %}OK{% else %}Not found{% endif %}
+                        </span></td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit info -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-pencil"></i> Node Info</div>
+            <div class="card-body">
+                <form method="POST" action="/node/{{ node.name }}/edit">
+                    <div class="mb-2">
+                        <label class="form-label">MAC address</label>
+                        <input type="text" class="form-control form-control-sm mono" name="mac"
+                               value="{{ node.mac }}" placeholder="02:81:d7:f0:44:df">
+                        <div class="form-text">Find in your router's DHCP leases. Saving creates/updates PXE config.</div>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">IP address</label>
+                        <input type="text" class="form-control form-control-sm mono" name="ip"
+                               value="{{ node.ip }}" placeholder="192.168.10.xxx">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">Notes</label>
+                        <input type="text" class="form-control form-control-sm" name="notes"
+                               value="{{ node.notes }}" placeholder="e.g. Living room sensor">
+                    </div>
+                    <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-check"></i> Save</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Router Setup -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-router"></i> Router Setup</div>
+            <div class="card-body">
+                <p class="text-muted mb-2" style="font-size:0.85rem;">
+                    Set these in your router's <strong>DHCP settings</strong> (one-time, applies to all boards):
+                </p>
+                <table class="table table-sm mb-3">
+                    <tr><td>TFTP Server / Next Server</td><td><code>{{ server_ip }}</code></td></tr>
+                    <tr><td>Enable Network Booting</td><td>☑️</td></tr>
+                </table>
+                <p class="text-muted mb-0" style="font-size:0.85rem;">
+                    <i class="bi bi-info-circle"></i> No per-board config needed. U-Boot's PXE boot requests
+                    <code>pxelinux.cfg/01-{{ (node.mac or 'xx:xx:xx:xx:xx:xx') | replace(':', '-') }}</code>
+                    which maps to this node's config automatically.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Host commands -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-terminal"></i> Host Commands</div>
+            <div class="card-body">
+                <pre class="mb-0" style="font-size:0.8rem;"># Deploy/update rootfs + boot files
+sudo ./server/deploy-rootfs.sh &lt;armbian.img&gt; {{ node.name }}{% if node.mac %} {{ node.mac }}{% endif %}
+
+# SSH into running board
+ssh root@{{ node.ip or '&lt;board-ip&gt;' }}
+
+# Remove rootfs from host
+sudo rm -rf /srv/nfs/{{ node.name }}
+sudo exportfs -ra</pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Boot config files -->
+    {% if node.has_rootfs %}
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-sliders"></i> Boot Config Files</div>
+            <div class="card-body" style="font-size:0.85rem;">
+                <p class="text-muted mb-2">Drop files in the NFS boot directory to configure the board:</p>
+                <table class="table table-sm mb-2">
+                    <thead><tr><th>File</th><th>Effect</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>ssh</code></td><td>Enable SSH (first boot, then deleted)</td></tr>
+                        <tr><td><code>hostname.txt</code></td><td>Set hostname (write name inside)</td></tr>
+                        <tr><td><code>limit_1080p</code></td><td>Force HDMI to 1080p (persistent)</td></tr>
+                    </tbody>
+                </table>
+                <pre class="bg-dark text-light p-2 rounded mb-0" style="font-size:0.8rem;">touch /srv/nfs/{{ node.name }}/boot/ssh
+echo "{{ node.name }}" > /srv/nfs/{{ node.name }}/boot/hostname.txt
+touch /srv/nfs/{{ node.name }}/boot/limit_1080p</pre>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if node.pxe_config %}
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-file-code"></i> PXE Config
+                <span class="text-muted" style="font-size:0.8rem;">
+                    (pxelinux.cfg/01-{{ node.mac | replace(':', '-') }})
+                </span>
+            </div>
+            <div class="card-body">
+                <pre class="mb-0" style="font-size: 0.85rem;">{{ node.pxe_config }}</pre>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

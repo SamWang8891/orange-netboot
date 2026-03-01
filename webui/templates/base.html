@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Orange Netboot{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+    <style>
+        .status-ok { color: #198754; }
+        .status-bad { color: #dc3545; }
+        .status-warn { color: #ffc107; }
+        .node-card { transition: transform 0.1s; cursor: pointer; }
+        .node-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+        .flash-output { font-family: monospace; font-size: 0.85rem; white-space: pre-wrap; max-height: 300px; overflow-y: auto; }
+        .mono { font-family: monospace; }
+        pre code { color: #e9ecef; }
+        #headerTerminal {
+            display: none;
+            border-bottom: 2px solid #444;
+        }
+        #headerTerminal.show { display: block; }
+        #headerTerminalBox { height: 260px; }
+        .terminal-bar {
+            background: #1a1a2e;
+            padding: 6px 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.85rem;
+        }
+        .terminal-bar input, .terminal-bar select { background: #2a2a3e; border: 1px solid #444; color: #e0e0e0; }
+    </style>
+</head>
+<body>
+    <!-- Terminal Header -->
+    <div id="headerTerminal">
+        <div class="terminal-bar">
+            <i class="bi bi-terminal-fill text-success"></i>
+            <span id="termTitle" class="text-muted">Terminal</span>
+            <select id="termNodeSelect" class="form-select form-select-sm mono" style="width:140px;"></select>
+            <input type="text" id="termUser" value="root" class="form-control form-control-sm mono" style="width:80px;" placeholder="user">
+            <input type="password" id="termPass" value="1234" class="form-control form-control-sm mono" style="width:100px;" placeholder="pass">
+            <button class="btn btn-sm btn-success" onclick="termConnect()"><i class="bi bi-play-fill"></i> Connect</button>
+            <span id="termConnStatus" class="badge bg-secondary ms-1">Idle</span>
+            <div class="ms-auto d-flex gap-1">
+                <button class="btn btn-sm btn-outline-secondary" onclick="termReconnect()" title="Reconnect"><i class="bi bi-arrow-clockwise"></i></button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="toggleTerminal()" title="Hide"><i class="bi bi-chevron-up"></i></button>
+            </div>
+        </div>
+        <div id="headerTerminalBox"></div>
+    </div>
+
+    <nav class="navbar navbar-expand-lg bg-body-tertiary mb-4">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="bi bi-hdd-network-fill"></i> Orange Netboot
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/"><i class="bi bi-grid-3x2-gap"></i> Nodes</a>
+                <a class="nav-link" href="/deploy"><i class="bi bi-plus-circle"></i> Add Node</a>
+                <a class="nav-link" href="/setup"><i class="bi bi-gear"></i> Setup</a>
+                <a class="nav-link" href="#" onclick="toggleTerminal(); return false;"><i class="bi bi-terminal"></i> Terminal</a>
+            </div>
+        </div>
+    </nav>
+    <div class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                {% if category == 'output' %}
+                    <div class="alert alert-secondary flash-output">{{ message }}</div>
+                {% elif category == 'error' %}
+                    <div class="alert alert-danger alert-dismissible fade show">{{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+                {% elif category == 'success' %}
+                    <div class="alert alert-success alert-dismissible fade show">{{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+                {% elif category == 'warning' %}
+                    <div class="alert alert-warning alert-dismissible fade show" style="white-space:pre-wrap;">{{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+                {% else %}
+                    <div class="alert alert-info alert-dismissible fade show">{{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+                {% endif %}
+            {% endfor %}
+        {% endif %}
+        {% endwith %}
+        {% block content %}{% endblock %}
+    </div>
+    <footer class="container text-center text-muted py-4" style="font-size:0.8rem;">
+        Orange Netboot · PXE/TFTP + NFS network boot for Orange Pi boards<br>
+        <a href="https://github.com/SamWang8891/orange-netboot" class="text-muted text-decoration-none">
+            <i class="bi bi-github"></i> SamWang8891/orange-netboot
+        </a>
+    </footer>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js"></script>
+    <script>
+    let termWs = null;
+    let term = null;
+    let termFit = null;
+    let termInited = false;
+
+    function toggleTerminal() {
+        const el = document.getElementById('headerTerminal');
+        el.classList.toggle('show');
+        if (el.classList.contains('show') && !termInited) {
+            initHeaderTerminal();
+            loadTermNodes();
+        }
+        if (el.classList.contains('show') && termFit) {
+            termFit.fit();
+        }
+    }
+
+    // Allow opening terminal for a specific node from anywhere
+    function openTerminalFor(nodeName, nodeIp) {
+        const el = document.getElementById('headerTerminal');
+        if (!el.classList.contains('show')) {
+            el.classList.add('show');
+            if (!termInited) {
+                initHeaderTerminal();
+                loadTermNodes();
+            }
+        }
+        // Set the select and connect
+        setTimeout(() => {
+            const sel = document.getElementById('termNodeSelect');
+            for (let o of sel.options) {
+                if (o.value === nodeIp) { o.selected = true; break; }
+            }
+            document.getElementById('termTitle').textContent = nodeName;
+            termConnect();
+        }, termInited ? 0 : 300);
+    }
+
+    function initHeaderTerminal() {
+        term = new Terminal({
+            cursorBlink: true,
+            fontSize: 13,
+            fontFamily: '"Cascadia Code", "Fira Code", "JetBrains Mono", monospace',
+            theme: { background: '#1a1a2e', foreground: '#e0e0e0', cursor: '#00ff88', selectionBackground: '#44475a' },
+            scrollback: 10000,
+        });
+        termFit = new FitAddon.FitAddon();
+        term.loadAddon(termFit);
+        term.loadAddon(new WebLinksAddon.WebLinksAddon());
+        term.open(document.getElementById('headerTerminalBox'));
+        termFit.fit();
+        window.addEventListener('resize', () => { if (termFit) termFit.fit(); });
+        new ResizeObserver(() => {
+            if (termFit) termFit.fit();
+            if (termWs && termWs.readyState === WebSocket.OPEN) {
+                termWs.send(`\x1b[8;${term.rows};${term.cols}t`);
+            }
+        }).observe(document.getElementById('headerTerminalBox'));
+        term.onData((data) => {
+            if (termWs && termWs.readyState === WebSocket.OPEN) termWs.send(data);
+        });
+        termInited = true;
+    }
+
+    function loadTermNodes() {
+        fetch('/api/nodes').then(r => r.json()).then(nodes => {
+            const sel = document.getElementById('termNodeSelect');
+            sel.innerHTML = '<option value="">— select node —</option>';
+            nodes.forEach(n => {
+                if (n.ip) {
+                    const o = document.createElement('option');
+                    o.value = n.ip;
+                    o.textContent = `${n.name} (${n.ip})`;
+                    o.dataset.name = n.name;
+                    sel.appendChild(o);
+                }
+            });
+        });
+    }
+
+    function termConnect() {
+        const sel = document.getElementById('termNodeSelect');
+        const opt = sel.options[sel.selectedIndex];
+        if (!opt || !opt.value) { alert('Select a node first'); return; }
+        const nodeName = opt.dataset.name || opt.textContent;
+        const user = document.getElementById('termUser').value;
+        const pass = document.getElementById('termPass').value;
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const url = `${proto}//${location.host}/ws/terminal/${nodeName}?user=${encodeURIComponent(user)}&pass=${encodeURIComponent(pass)}`;
+
+        if (termWs) termWs.close();
+        if (term) term.clear();
+
+        const status = document.getElementById('termConnStatus');
+        status.className = 'badge bg-warning ms-1';
+        status.textContent = 'Connecting...';
+        document.getElementById('termTitle').textContent = nodeName;
+
+        termWs = new WebSocket(url);
+        termWs.onopen = () => {
+            status.className = 'badge bg-success ms-1';
+            status.textContent = 'Connected';
+            setTimeout(() => {
+                if (termWs.readyState === WebSocket.OPEN)
+                    termWs.send(`\x1b[8;${term.rows};${term.cols}t`);
+            }, 500);
+        };
+        termWs.onmessage = (e) => term.write(e.data);
+        termWs.onclose = () => { status.className = 'badge bg-danger ms-1'; status.textContent = 'Disconnected'; };
+        termWs.onerror = () => { status.className = 'badge bg-danger ms-1'; status.textContent = 'Error'; };
+    }
+
+    function termReconnect() {
+        if (term) term.clear();
+        termConnect();
+    }
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>
