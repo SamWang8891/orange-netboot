@@ -33,7 +33,7 @@
         .terminal-bar input, .terminal-bar select { background: #2a2a3e; border: 1px solid #444; color: #e0e0e0; }
     </style>
 </head>
-<body>
+<body class="d-flex flex-column min-vh-100">
     <!-- Terminal Header -->
     <div id="headerTerminal">
         <div class="terminal-bar">
@@ -66,7 +66,7 @@
             </div>
         </div>
     </nav>
-    <div class="container">
+    <div class="container flex-grow-1">
         {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
             {% for category, message in messages %}
