@@ -1,5 +1,7 @@
 # orange-netboot
 
+> WARNING! This project has NOT YET FINISHED. Use at your own risk.
+
 Network boot manager for ARM boards (Orange Pi, NanoPi, etc.) with a web UI.
 
 Boards boot from a **stock Armbian SD card** — no custom bootloader needed. U-Boot's built-in PXE boot finds your server via DHCP, downloads kernel + initrd + DTB via TFTP, and mounts the rootfs via NFS.
