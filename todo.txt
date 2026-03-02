@@ -1,0 +1,19 @@
+for the webui
+1. Fix the python deploy logic, use requirements.txt (use uv if possible)
+2. The <armbian.img> indication in command suggest should be the real filename that the node is using
+Like:
+```py
+    if missing:
+        flash(
+            f"Missing: {', '.join(missing)}. Run on the host:\n"
+            f"sudo ./server/deploy-rootfs.sh <armbian.img> {node_name}"
+            + (f" {mac}" if mac else "") + f" {dtb_name}",
+            "warning",
+        )
+```
+3. Managing upload/make netboot img/download img should be another tab, like the nodes / add node / setup / terminal tab
+
+
+4. Write a linux daemon (or other method) that releases user from running the commands that requires root (the commands that currently needs manually run)
+
+Make a logo

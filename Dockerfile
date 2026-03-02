@@ -1,7 +1,7 @@
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 python3-flask python3-paramiko python3-pip \
+    python3 \
     tftpd-hpa \
     u-boot-tools \
     rsync \
@@ -11,9 +11,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     kpartx \
     xz-utils \
     openssh-client \
-    && pip3 install --break-system-packages flask-sock \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /srv/tftp /srv/nfs /uploads /db
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+COPY webui/requirements.txt /tmp/requirements.txt
+RUN uv pip install --system --no-cache -r /tmp/requirements.txt
 
 COPY webui /app/
 COPY scripts /scripts/

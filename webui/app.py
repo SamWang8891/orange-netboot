@@ -173,10 +173,15 @@ def setup():
     return render_template("setup.html", server_ip=get_server_ip())
 
 
+@app.route("/images")
+def images_page():
+    return render_template("images.html", images=get_images(include_netboot=True))
+
+
 @app.route("/deploy", methods=["GET", "POST"])
 def deploy():
     if request.method == "GET":
-        return render_template("deploy.html", images=get_images(), board_types=BOARD_TYPES)
+        return render_template("deploy.html", board_types=BOARD_TYPES)
 
     node_name = request.form.get("node_name", "").strip()
     board_type = request.form.get("board_type", "orangepi-one")
@@ -228,9 +233,11 @@ def deploy():
         missing.append("rootfs")
 
     if missing:
+        images = get_images()
+        img_arg = images[0].name if images else "<armbian.img>"
         flash(
             f"Missing: {', '.join(missing)}. Run on the host:\n"
-            f"sudo ./server/deploy-rootfs.sh <armbian.img> {node_name}"
+            f"sudo ./server/deploy-rootfs.sh {img_arg} {node_name}"
             + (f" {mac}" if mac else "") + f" {dtb_name}",
             "warning",
         )
@@ -252,7 +259,7 @@ def upload():
     if request.headers.get("X-Requested-With") == "XMLHttpRequest":
         return jsonify({"ok": True, "filename": f.filename, "size_mb": size_mb})
     flash(f"Uploaded {f.filename} ({size_mb} MB)", "success")
-    return redirect(url_for("deploy"))
+    return redirect(url_for("images_page"))
 
 
 @app.route("/images/<name>/delete", methods=["POST"])
@@ -260,7 +267,7 @@ def delete_image(name):
     img = UPLOAD_DIR / name
     if img.exists():
         img.unlink()
-    return redirect(url_for("deploy"))
+    return redirect(url_for("images_page"))
 
 
 @app.route("/generate-sd", methods=["POST"])
@@ -268,7 +275,7 @@ def generate_sd():
     image_path = request.form.get("image_path", "")
     if not image_path or not Path(image_path).exists():
         flash("Select an image first.", "error")
-        return redirect(url_for("deploy"))
+        return redirect(url_for("images_page"))
     stem = Path(image_path).stem
     if stem.endswith(".img"):
         stem = stem[:-4]
@@ -283,7 +290,7 @@ def generate_sd():
     )
     if result.returncode != 0:
         flash(f"SD image generation failed: {result.stderr or result.stdout}", "error")
-        return redirect(url_for("deploy"))
+        return redirect(url_for("images_page"))
     return send_file(str(output_path), as_attachment=True, download_name=output_name)
 
 
@@ -293,7 +300,9 @@ def node_detail(name):
     if not nodes:
         flash(f"Node '{name}' not found.", "error")
         return redirect(url_for("index"))
-    return render_template("node.html", node=nodes[0], server_ip=get_server_ip())
+    images = get_images()
+    image_hint = images[0].name if images else None
+    return render_template("node.html", node=nodes[0], server_ip=get_server_ip(), image_hint=image_hint)
 
 
 @app.route("/node/<name>/edit", methods=["POST"])

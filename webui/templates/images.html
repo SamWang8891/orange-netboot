@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}Images — Orange Netboot{% endblock %}
+{% block content %}
+<h2 class="mb-4"><i class="bi bi-hdd"></i> Images</h2>
+
+<div class="row g-4">
+    <!-- Upload -->
+    <div class="col-md-5">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-upload"></i> Upload Armbian Image</div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <input type="file" class="form-control" id="imageFile" accept=".img,.img.xz,.gz">
+                    <div class="form-text">.img or .img.xz — or SCP to <code>./data/uploads/</code></div>
+                </div>
+                <div id="uploadProgress" class="mb-3" style="display:none;">
+                    <div class="progress" style="height: 24px;">
+                        <div id="uploadBar" class="progress-bar progress-bar-striped progress-bar-animated"
+                             role="progressbar" style="width: 0%">0%</div>
+                    </div>
+                    <small id="uploadStatus" class="text-muted mt-1 d-block"></small>
+                </div>
+                <button type="button" class="btn btn-secondary" id="uploadBtn" onclick="uploadFile()">
+                    <i class="bi bi-upload"></i> Upload
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Available images -->
+    <div class="col-md-7">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-archive"></i> Available Images</div>
+            <div class="card-body">
+                {% if images %}
+                <table class="table table-sm mb-0" style="font-size:0.85rem;">
+                    <thead>
+                        <tr>
+                            <th>Filename</th>
+                            <th>Size</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for img in images %}
+                        <tr>
+                            <td><code>{{ img.name }}</code></td>
+                            <td class="text-muted">{{ (img.stat().st_size // 1024 // 1024) }} MB</td>
+                            <td class="text-end">
+                                <form method="POST" action="/images/{{ img.name }}/delete" class="d-inline">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1"
+                                            onclick="return confirm('Delete {{ img.name }}?')">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p class="text-muted mb-0">No images uploaded yet.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if images %}
+        <div class="card mt-3">
+            <div class="card-header"><i class="bi bi-sd-card"></i> Generate Netboot SD Image</div>
+            <div class="card-body">
+                <form method="POST" action="/generate-sd">
+                    <div class="mb-3">
+                        <select class="form-select" name="image_path" required>
+                            {% for img in images %}
+                            <option value="{{ img }}">{{ img.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">Optional: creates a minimal 32MB SD image. Stock Armbian also works!</div>
+                    </div>
+                    <button type="submit" class="btn btn-outline-primary">
+                        <i class="bi bi-download"></i> Generate & Download
+                    </button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function uploadFile() {
+    const fileInput = document.getElementById('imageFile');
+    const file = fileInput.files[0];
+    if (!file) { alert('Select a file first'); return; }
+    const formData = new FormData();
+    formData.append('image', file);
+    const xhr = new XMLHttpRequest();
+    const progressDiv = document.getElementById('uploadProgress');
+    const bar = document.getElementById('uploadBar');
+    const status = document.getElementById('uploadStatus');
+    const btn = document.getElementById('uploadBtn');
+    progressDiv.style.display = 'block';
+    btn.disabled = true;
+    xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+            const pct = Math.round((e.loaded / e.total) * 100);
+            bar.style.width = pct + '%';
+            bar.textContent = pct + '%';
+            status.textContent = `${(e.loaded/1024/1024).toFixed(1)} MB / ${(e.total/1024/1024).toFixed(1)} MB`;
+        }
+    });
+    xhr.addEventListener('load', () => {
+        if (xhr.status === 200) {
+            bar.classList.remove('progress-bar-animated');
+            bar.classList.add('bg-success');
+            bar.textContent = 'Done!';
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            bar.classList.add('bg-danger');
+            bar.textContent = 'Error';
+            btn.disabled = false;
+        }
+    });
+    xhr.addEventListener('error', () => {
+        bar.classList.add('bg-danger');
+        bar.textContent = 'Failed';
+        btn.disabled = false;
+    });
+    xhr.open('POST', '/upload');
+    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+    xhr.send(formData);
+}
+</script>
+{% endblock %}

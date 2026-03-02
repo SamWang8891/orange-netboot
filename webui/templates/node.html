@@ -28,7 +28,7 @@
 <div class="alert alert-warning">
     <h6><i class="bi bi-exclamation-triangle"></i> Node not fully deployed</h6>
     <p class="mb-2">Run this on the <strong>host</strong> to deploy boot files + rootfs:</p>
-    <pre class="bg-dark text-light p-2 rounded mb-0" style="font-size:0.85rem;">sudo ./server/deploy-rootfs.sh &lt;armbian.img&gt; {{ node.name }}{% if node.mac %} {{ node.mac }}{% endif %}</pre>
+    <pre class="bg-dark text-light p-2 rounded mb-0" style="font-size:0.85rem;">sudo ./server/deploy-rootfs.sh {{ image_hint or '&lt;armbian.img&gt;' }} {{ node.name }}{% if node.mac %} {{ node.mac }}{% endif %}</pre>
 </div>
 {% elif not node.has_pxe and not node.mac %}
 <div class="alert alert-info">
@@ -138,7 +138,7 @@
             <div class="card-header"><i class="bi bi-terminal"></i> Host Commands</div>
             <div class="card-body">
                 <pre class="mb-0" style="font-size:0.8rem;"># Deploy/update rootfs + boot files
-sudo ./server/deploy-rootfs.sh &lt;armbian.img&gt; {{ node.name }}{% if node.mac %} {{ node.mac }}{% endif %}
+sudo ./server/deploy-rootfs.sh {{ image_hint or '&lt;armbian.img&gt;' }} {{ node.name }}{% if node.mac %} {{ node.mac }}{% endif %}
 
 # SSH into running board
 ssh root@{{ node.ip or '&lt;board-ip&gt;' }}
