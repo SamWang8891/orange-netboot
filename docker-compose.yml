@@ -15,9 +15,12 @@ services:
       - ./data/uploads:/uploads      # Image uploads
       - ./data/db:/db                # Node database
       - ./webui:/app                 # Python app code
+      - ./data/agent.token:/run/agent.token:ro  # Shared token for host agent auth
     environment:
       - TFTP_DIR=/srv/tftp
       - NFS_DIR=/srv/nfs
       - UPLOAD_DIR=/uploads
       - DB_DIR=/db
       - SERVER_IP=${SERVER_IP:-}
+      - AGENT_URL=http://host.docker.internal:7777
+      - AGENT_TOKEN_FILE=/run/agent.token

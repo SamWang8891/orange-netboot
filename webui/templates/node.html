@@ -11,6 +11,11 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2><i class="bi bi-motherboard"></i> {{ node.name }}</h2>
     <div class="d-flex gap-2">
+        {% if images %}
+        <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#deployModal">
+            <i class="bi bi-cloud-arrow-down"></i> Deploy
+        </button>
+        {% endif %}
         {% if node.ip and node.has_rootfs %}
         <button class="btn btn-outline-success btn-sm" onclick="openTerminalFor('{{ node.name }}', '{{ node.ip }}')">
             <i class="bi bi-terminal-fill"></i> Terminal
@@ -22,6 +27,49 @@
         </form>
     </div>
 </div>
+
+{% if images %}
+<!-- Deploy Modal -->
+<div class="modal fade" id="deployModal" tabindex="-1" aria-labelledby="deployModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="deployModalLabel">
+                    <i class="bi bi-cloud-arrow-down"></i> Deploy to {{ node.name }}
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="deployForm">
+                    <div class="mb-3">
+                        <label class="form-label">Image</label>
+                        <select class="form-select form-select-sm mono" id="deployImage">
+                            {% for img in images %}
+                            <option value="{{ img }}">{{ img }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label text-muted" style="font-size:0.85rem;">
+                            MAC and DTB are read from node settings; leave blank to use stored values.
+                        </label>
+                    </div>
+                </div>
+                <div id="deployOutput" style="display:none;">
+                    <pre id="deployLog" class="bg-dark text-light p-3 rounded" style="font-size:0.8rem; max-height:400px; overflow-y:auto; white-space:pre-wrap;"></pre>
+                    <div id="deployDone" class="mt-2" style="display:none;"></div>
+                </div>
+            </div>
+            <div class="modal-footer" id="deployFooter">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="deployBtn" onclick="startDeploy()">
+                    <i class="bi bi-play-fill"></i> Deploy
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 
 {# Warnings for missing items #}
 {% if not node.has_kernel or not node.has_initrd or not node.has_rootfs %}
@@ -188,4 +236,94 @@ touch /srv/nfs/{{ node.name }}/boot/limit_1080p</pre>
     </div>
     {% endif %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+{% if images %}
+<script>
+function startDeploy() {
+    const image = document.getElementById('deployImage').value;
+    const btn = document.getElementById('deployBtn');
+    const log = document.getElementById('deployLog');
+    const output = document.getElementById('deployOutput');
+    const form = document.getElementById('deployForm');
+    const done = document.getElementById('deployDone');
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Deploying...';
+    form.style.display = 'none';
+    output.style.display = 'block';
+    log.textContent = '';
+    done.style.display = 'none';
+
+    fetch('/node/{{ node.name }}/deploy', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            image: image,
+            node: '{{ node.name }}',
+            mac: '{{ node.mac }}',
+            dtb: '{{ node.dtb if node.dtb != "none" else "" }}',
+        }),
+    }).then(resp => {
+        if (!resp.ok) {
+            return resp.json().then(j => { throw new Error(j.error || resp.statusText); });
+        }
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+
+        function pump() {
+            return reader.read().then(({done: streamDone, value}) => {
+                if (streamDone) return;
+                buf += decoder.decode(value, {stream: true});
+                const parts = buf.split('\n\n');
+                buf = parts.pop();
+                for (const part of parts) {
+                    const lines = part.split('\n');
+                    const eventLine = lines.find(l => l.startsWith('event:'));
+                    const dataLine = lines.find(l => l.startsWith('data:'));
+                    if (dataLine) {
+                        const text = dataLine.slice(5).trimStart();
+                        if (eventLine && eventLine.includes('done')) {
+                            try { showDeployDone(JSON.parse(text).exit_code); } catch(e) {}
+                        } else {
+                            log.textContent += text + '\n';
+                            log.scrollTop = log.scrollHeight;
+                        }
+                    }
+                }
+                return pump();
+            });
+        }
+        return pump();
+    }).catch(err => {
+        log.textContent += '\nError: ' + err.message + '\n';
+        showDeployDone(1);
+    });
+}
+
+function showDeployDone(exitCode) {
+    const done = document.getElementById('deployDone');
+    done.style.display = 'block';
+    if (exitCode === 0) {
+        done.innerHTML = '<div class="alert alert-success mb-0"><i class="bi bi-check-circle-fill"></i> Deploy complete!</div>';
+    } else {
+        done.innerHTML = `<div class="alert alert-danger mb-0"><i class="bi bi-x-circle-fill"></i> Deploy failed (exit code ${exitCode})</div>`;
+    }
+    document.getElementById('deployFooter').innerHTML =
+        '<button type="button" class="btn btn-primary" data-bs-dismiss="modal" onclick="location.reload()">' +
+        '<i class="bi bi-arrow-clockwise"></i> Close &amp; Refresh</button>';
+}
+
+document.getElementById('deployModal').addEventListener('hidden.bs.modal', function() {
+    document.getElementById('deployForm').style.display = 'block';
+    document.getElementById('deployOutput').style.display = 'none';
+    document.getElementById('deployDone').style.display = 'none';
+    document.getElementById('deployFooter').innerHTML =
+        '<button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>' +
+        '<button type="button" class="btn btn-primary" id="deployBtn" onclick="startDeploy()"><i class="bi bi-play-fill"></i> Deploy</button>';
+});
+</script>
+{% endif %}
 {% endblock %}

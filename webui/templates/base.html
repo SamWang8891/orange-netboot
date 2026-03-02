@@ -193,11 +193,8 @@
         const user = document.getElementById('termUser').value;
         const pass = document.getElementById('termPass').value;
         const port = document.getElementById('termPort').value;
-        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const url = `${proto}//${location.host}/ws/terminal/${nodeName}?user=${encodeURIComponent(user)}&pass=${encodeURIComponent(pass)}&port=${encodeURIComponent(port)}`;
 
         const portValue = Number(port);
-
         if (isNaN(portValue) || portValue < 0 || portValue > 65535) {
             alert("Invalid port! Must be a number between 0 and 65535.");
             return;
@@ -211,18 +208,35 @@
         status.textContent = 'Connecting...';
         document.getElementById('termTitle').textContent = nodeName;
 
-        termWs = new WebSocket(url);
-        termWs.onopen = () => {
-            status.className = 'badge bg-success ms-1';
-            status.textContent = 'Connected';
-            setTimeout(() => {
-                if (termWs.readyState === WebSocket.OPEN)
-                    termWs.send(`\x1b[8;${term.rows};${term.cols}t`);
-            }, 500);
-        };
-        termWs.onmessage = (e) => term.write(e.data);
-        termWs.onclose = () => { status.className = 'badge bg-danger ms-1'; status.textContent = 'Disconnected'; };
-        termWs.onerror = () => { status.className = 'badge bg-danger ms-1'; status.textContent = 'Error'; };
+        // Exchange credentials for a short-lived token (keeps creds out of URL/logs)
+        fetch('/api/terminal-session', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({user, pass, port: portValue}),
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (!data.token) throw new Error(data.error || 'No token returned');
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const url = `${proto}//${location.host}/ws/terminal/${nodeName}?token=${encodeURIComponent(data.token)}`;
+            termWs = new WebSocket(url);
+            termWs.onopen = () => {
+                status.className = 'badge bg-success ms-1';
+                status.textContent = 'Connected';
+                setTimeout(() => {
+                    if (termWs.readyState === WebSocket.OPEN)
+                        termWs.send(`\x1b[8;${term.rows};${term.cols}t`);
+                }, 500);
+            };
+            termWs.onmessage = (e) => term.write(e.data);
+            termWs.onclose = () => { status.className = 'badge bg-danger ms-1'; status.textContent = 'Disconnected'; };
+            termWs.onerror = () => { status.className = 'badge bg-danger ms-1'; status.textContent = 'Error'; };
+        })
+        .catch(err => {
+            status.className = 'badge bg-danger ms-1';
+            status.textContent = 'Error';
+            if (term) term.write(`\r\n\x1b[31mFailed to create session: ${err.message}\x1b[0m\r\n`);
+        });
     }
 
     function termReconnect() {

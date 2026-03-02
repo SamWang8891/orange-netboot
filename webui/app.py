@@ -3,16 +3,19 @@
 import json
 import os
 import paramiko
+import secrets
 import shutil
 import subprocess
 import threading
 import logging
 import socket
 import time
+import urllib.error
+import urllib.request
 from datetime import datetime
 from flask import (
     Flask, render_template, request, redirect, url_for,
-    flash, jsonify, send_file,
+    flash, jsonify, send_file, Response, stream_with_context,
 )
 from flask_sock import Sock
 from pathlib import Path
@@ -27,6 +30,11 @@ NFS_DIR = Path(os.environ.get("NFS_DIR", "/srv/nfs"))
 UPLOAD_DIR = Path(os.environ.get("UPLOAD_DIR", "/uploads"))
 DB_DIR = Path(os.environ.get("DB_DIR", "/db"))
 SERVER_IP = os.environ.get("SERVER_IP", "")
+AGENT_URL = os.environ.get("AGENT_URL", "http://host.docker.internal:7777")
+AGENT_TOKEN_FILE = Path(os.environ.get("AGENT_TOKEN_FILE", "/run/agent.token"))
+
+# token → {user, pass, port, expires}
+_terminal_sessions: dict = {}
 
 BOARD_TYPES = {
     "orangepi-one": {"dtb": "sun8i-h3-orangepi-one.dtb", "soc": "H3"},
@@ -302,7 +310,13 @@ def node_detail(name):
         return redirect(url_for("index"))
     images = get_images()
     image_hint = images[0].name if images else None
-    return render_template("node.html", node=nodes[0], server_ip=get_server_ip(), image_hint=image_hint)
+    return render_template(
+        "node.html",
+        node=nodes[0],
+        server_ip=get_server_ip(),
+        image_hint=image_hint,
+        images=[img.name for img in images],
+    )
 
 
 @app.route("/node/<name>/edit", methods=["POST"])
@@ -400,16 +414,15 @@ def terminal_ws(ws, name):
             ws.send("\r\n\x1b[31mError: No IP address set for this node.\x1b[0m\r\n")
             return
 
-    # Get credentials from query params or defaults
-    username = request.args.get("user")
-    password = request.args.get("pass")
-    port = request.args.get("port")
-
-    try:
-        int(port)
-    except:
-        ws.send("Port is not number, quitting...\r\n")
+    # Resolve credentials from session token
+    tok = request.args.get("token")
+    sess = _terminal_sessions.pop(tok, None) if tok else None
+    if not sess or time.time() > sess["expires"]:
+        ws.send("\r\n\x1b[31mError: Invalid or expired session token.\x1b[0m\r\n")
         return
+    username = sess["user"]
+    password = sess["pass"]
+    port = sess["port"]
 
     try:
         ws.send(f"\x1b[33mConnecting to {username}@{ip}...\x1b[0m\r\n")
@@ -480,6 +493,86 @@ def terminal_ws(ws, name):
         ws.send(f"\r\n\x1b[31mSSH error: {e}\x1b[0m\r\n")
     except Exception as e:
         ws.send(f"\r\n\x1b[31mConnection failed: {e}\x1b[0m\r\n")
+
+
+def _read_agent_token() -> str:
+    try:
+        return AGENT_TOKEN_FILE.read_text().strip()
+    except Exception:
+        return ""
+
+
+@app.route("/api/agent-status")
+def agent_status():
+    try:
+        resp = urllib.request.urlopen(f"{AGENT_URL}/status", timeout=3)
+        data = json.loads(resp.read())
+        return jsonify({"reachable": True, **data})
+    except Exception:
+        return jsonify({"reachable": False})
+
+
+@app.route("/node/<name>/deploy", methods=["POST"])
+def deploy_node(name):
+    data = request.get_json(force=True, silent=True) or {}
+    image = data.get("image", "")
+    node = data.get("node", name)
+    mac = data.get("mac", "")
+    dtb = data.get("dtb", "")
+
+    agent_token = _read_agent_token()
+    if not agent_token:
+        return jsonify({"error": "Agent token not available — is netboot-agent running?"}), 503
+
+    payload = json.dumps({"image": image, "node": node, "mac": mac, "dtb": dtb}).encode()
+    req = urllib.request.Request(
+        f"{AGENT_URL}/run/deploy-rootfs",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {agent_token}",
+            "Content-Type": "application/json",
+        },
+    )
+
+    def generate():
+        try:
+            resp = urllib.request.urlopen(req, timeout=600)
+            while True:
+                line = resp.readline()
+                if not line:
+                    break
+                yield line.decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as e:
+            body = e.read().decode(errors="replace")
+            yield f"data: Error {e.code}: {body}\n\n"
+            yield 'event: done\ndata: {"exit_code": 1}\n\n'
+        except Exception as e:
+            yield f"data: Error: {e}\n\n"
+            yield 'event: done\ndata: {"exit_code": 1}\n\n'
+
+    return Response(stream_with_context(generate()), content_type="text/event-stream")
+
+
+@app.route("/api/terminal-session", methods=["POST"])
+def create_terminal_session():
+    data = request.get_json(force=True, silent=True) or {}
+    user = data.get("user", "")
+    pass_ = data.get("pass", "")
+    port = data.get("port", 22)
+    if not user:
+        return jsonify({"error": "user required"}), 400
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        return jsonify({"error": "port must be a number"}), 400
+    tok = secrets.token_urlsafe(32)
+    _terminal_sessions[tok] = {
+        "user": user,
+        "pass": pass_,
+        "port": port,
+        "expires": time.time() + 60,
+    }
+    return jsonify({"token": tok})
 
 
 @app.route("/api/nodes")
