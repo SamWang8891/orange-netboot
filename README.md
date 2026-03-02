@@ -7,17 +7,18 @@ Boards boot from a **stock Armbian SD card** — no custom bootloader needed. U-
 ## Architecture
 
 ```
-┌──────────────────┐         ┌──────────────┐         ┌──────────────────────┐
-│ Orange Pi        │  DHCP   │ pfSense      │         │ Server (VM/host)     │
-│                  │◄───────►│              │         │                      │
-│ Stock Armbian SD │         │ TFTP server ─┼────────►│ Docker container     │
-│ (unchanged)      │  TFTP   │ set to       │         │ ├─ TFTP (:69)        │
-│                  │────────►│ server IP    │         │ └─ Web UI (:8080)    │
-│ U-Boot PXE boot  │         └──────────────┘         │                      │
-│ finds config by  │  NFS                             │ Host                 │
-│ MAC address      │─────────────────────────────────►│ └─ NFS server        │
-└──────────────────┘                                  │    └─ /srv/nfs/<node>│
-                                                      └──────────────────────┘
+┌──────────────────┐         ┌──────────────┐         ┌──────────────────────────┐
+│ Orange Pi        │  DHCP   │ pfSense      │         │ Server (VM/host)         │
+│                  │◄───────►│              │         │                          │
+│ Stock Armbian SD │         │ TFTP server ─┼────────►│ Docker container         │
+│ (unchanged)      │  TFTP   │ set to       │         │ ├─ TFTP (:69)            │
+│                  │────────►│ server IP    │         │ └─ Web UI (:8080)        │
+│ U-Boot PXE boot  │         └──────────────┘         │                          │
+│ finds config by  │  NFS                             │ Host                     │
+│ MAC address      │─────────────────────────────────►│ ├─ NFS server            │
+└──────────────────┘                                  │ │   └─ /srv/nfs/<node>   │
+                                                      │ └─ netboot-agent (:7777) │
+                                                      └──────────────────────────┘
 ```
 
 ## Quick Start
@@ -28,7 +29,7 @@ Boards boot from a **stock Armbian SD card** — no custom bootloader needed. U-
 git clone https://github.com/SamWang8891/netboot-manager
 cd netboot-manager
 
-# Install NFS on the host
+# Install NFS + netboot-agent on the host
 sudo ./server/setup-host.sh
 
 # Start Docker (TFTP + Web UI)
@@ -40,8 +41,11 @@ open http://YOUR_SERVER_IP:8080
 
 ### 2. Deploy a Node
 
+Open the node's page in the web UI and click **Deploy**. Select an image, confirm, and watch the live output stream. No SSH to the host required.
+
+Alternatively, run directly on the host:
+
 ```bash
-# Deploy rootfs + kernel + DTB (run on host)
 sudo ./server/deploy-rootfs.sh <armbian.img> <node-name>
 ```
 
@@ -66,11 +70,24 @@ Each board gets its own config by MAC address → completely independent rootfs 
 ## What Runs Where
 
 | Component | Where | Purpose |
-|-----------|-------|---------|
+|---|---|---|
 | TFTP | Docker (:69) | Serves PXE config, kernel, initrd, DTB |
-| Web UI | Docker (:8080) | Manage nodes, view setup instructions |
+| Web UI | Docker (:8080) | Manage nodes, upload images, deploy, terminal |
 | NFS | Host | Exports rootfs per node |
+| netboot-agent | Host (:7777) | Runs privileged host operations (deploy, setup) on behalf of the web UI |
 | DHCP | pfSense | Points boards to TFTP server |
+
+## netboot-agent
+
+`setup-host.sh` installs a small HTTP daemon (`netboot-agent`) that runs as root on the host via systemd. The web UI calls it to run `deploy-rootfs.sh` without requiring a manual SSH session.
+
+- Listens on `127.0.0.1:7777` (not exposed externally)
+- Authenticates all requests with a shared Bearer token stored in `data/agent.token` (chmod 600)
+- Streams script output line-by-line as Server-Sent Events so the web UI can show live progress
+
+## Web Terminal
+
+The node detail page has a built-in SSH terminal. Credentials are exchanged for a short-lived session token before the WebSocket connects — passwords never appear in server logs or browser history.
 
 ## Creating Netboot SD Cards
 
