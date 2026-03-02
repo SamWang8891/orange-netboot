@@ -7,16 +7,29 @@
     <div class="col-lg-8">
         <!-- Step 1 -->
         <div class="card mb-3">
-            <div class="card-header"><span class="badge bg-primary me-2">1</span> Server Setup (one-time)</div>
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><span class="badge bg-primary me-2">1</span> Server Setup (one-time)</span>
+                <span id="agentStatusBadge" class="badge bg-secondary">Checking agent…</span>
+            </div>
             <div class="card-body">
-                <p>Install NFS on the host and start Docker containers:</p>
-                <pre class="bg-dark p-3 rounded"><code># Install NFS server on the host
+                <p>Install NFS + netboot-agent on the host, then start Docker:</p>
+                <pre class="bg-dark p-3 rounded"><code># Run once on the host — installs NFS, netboot-agent systemd service
 sudo ./server/setup-host.sh
 
 # Start TFTP + Web UI containers
 docker compose up -d</code></pre>
-                <div class="alert alert-info mb-0 mt-3" style="font-size:0.9rem;">
-                    <i class="bi bi-info-circle"></i> Docker runs TFTP (:69) and this Web UI (:8080). NFS runs directly on the host.
+                <div class="alert alert-info mt-3 mb-0" style="font-size:0.9rem;">
+                    <i class="bi bi-info-circle"></i> Docker runs TFTP (:69) and this Web UI (:8080). NFS + netboot-agent run directly on the host as root.
+                </div>
+                <div id="rerunSetupBox" class="mt-3" style="display:none;">
+                    <button class="btn btn-sm btn-outline-secondary" onclick="runSetup()">
+                        <i class="bi bi-arrow-clockwise"></i> Re-run setup-host.sh
+                    </button>
+                    <span class="text-muted ms-2" style="font-size:0.8rem;">Useful after updating the repo to reinstall the agent.</span>
+                    <div id="setupOutput" class="mt-2" style="display:none;">
+                        <pre id="setupLog" class="bg-dark text-light p-3 rounded" style="font-size:0.78rem; max-height:300px; overflow-y:auto; white-space:pre-wrap;"></pre>
+                        <div id="setupDone" class="mt-1" style="display:none;"></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -49,10 +62,15 @@ docker compose up -d</code></pre>
 
         <!-- Step 3 -->
         <div class="card mb-3">
-            <div class="card-header"><span class="badge bg-primary me-2">3</span> Deploy a Node (run on host)</div>
+            <div class="card-header"><span class="badge bg-primary me-2">3</span> Deploy a Node</div>
             <div class="card-body">
-                <p>Extract rootfs + kernel from an Armbian image and set up NFS:</p>
-                <pre class="bg-dark p-3 rounded"><code># Basic — deploy without MAC (use pxelinux.cfg/default)
+                <p>
+                    Upload an Armbian image on the <a href="/images">Images page</a>, add a node on the
+                    <a href="/deploy">Add Node page</a>, then click <strong>Deploy</strong> on the node's page.
+                    The agent will extract the rootfs, kernel, and DTBs and stream live output to your browser.
+                </p>
+                <p class="text-muted mb-2" style="font-size:0.9rem;">Or run manually on the host:</p>
+                <pre class="bg-dark p-3 rounded"><code># Basic — deploy without MAC (uses pxelinux.cfg/default)
 sudo ./server/deploy-rootfs.sh Armbian.img mynode
 
 # With MAC — creates per-board PXE config
@@ -60,12 +78,8 @@ sudo ./server/deploy-rootfs.sh Armbian.img mynode 02:81:d7:f0:44:df
 
 # With MAC + specific board DTB
 sudo ./server/deploy-rootfs.sh Armbian.img mynode 02:81:d7:f0:44:df sun8i-h3-orangepi-pc.dtb</code></pre>
-                <p class="text-muted" style="font-size:0.9rem;">
-                    This creates <code>/srv/nfs/mynode/</code> (rootfs), <code>data/tftp/mynode/</code> (kernel+DTB),
-                    and <code>data/tftp/pxelinux.cfg/01-xx-xx-xx-xx-xx-xx</code> (PXE boot config).
-                </p>
-                <p class="text-muted" style="font-size:0.9rem;">
-                    Don't know the MAC yet? Deploy without it, boot the board, find MAC in your router's DHCP leases, then set it here in the web UI.
+                <p class="text-muted mb-0" style="font-size:0.9rem;">
+                    Don't know the MAC yet? Deploy without it, boot the board, find the MAC in your router's DHCP leases, then enter it on the node page.
                 </p>
             </div>
         </div>
@@ -142,4 +156,78 @@ sudo dd if=Armbian_bookworm_orangepione.img of=/dev/sdX bs=4M status=progress</c
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Check agent status on load
+fetch('/api/agent-status')
+    .then(r => r.json())
+    .then(data => {
+        const badge = document.getElementById('agentStatusBadge');
+        const rerunBox = document.getElementById('rerunSetupBox');
+        if (data.reachable) {
+            badge.className = 'badge bg-success';
+            badge.textContent = 'Agent running';
+            rerunBox.style.display = 'block';
+        } else {
+            badge.className = 'badge bg-danger';
+            badge.textContent = 'Agent not running';
+        }
+    })
+    .catch(() => {
+        document.getElementById('agentStatusBadge').textContent = 'Agent unreachable';
+    });
+
+function runSetup() {
+    const log = document.getElementById('setupLog');
+    const output = document.getElementById('setupOutput');
+    const done = document.getElementById('setupDone');
+    output.style.display = 'block';
+    log.textContent = '';
+    done.style.display = 'none';
+
+    fetch('/api/run-setup', {method: 'POST'})
+        .then(resp => {
+            if (!resp.ok) return resp.json().then(j => { throw new Error(j.error || resp.statusText); });
+            const reader = resp.body.getReader();
+            const decoder = new TextDecoder();
+            let buf = '';
+            function pump() {
+                return reader.read().then(({done: streamDone, value}) => {
+                    if (streamDone) return;
+                    buf += decoder.decode(value, {stream: true});
+                    const parts = buf.split('\n\n');
+                    buf = parts.pop();
+                    for (const part of parts) {
+                        const lines = part.split('\n');
+                        const eventLine = lines.find(l => l.startsWith('event:'));
+                        const dataLine = lines.find(l => l.startsWith('data:'));
+                        if (dataLine) {
+                            const text = dataLine.slice(5).trimStart();
+                            if (eventLine && eventLine.includes('done')) {
+                                try {
+                                    const info = JSON.parse(text);
+                                    done.style.display = 'block';
+                                    done.innerHTML = info.exit_code === 0
+                                        ? '<div class="alert alert-success py-1 mb-0"><i class="bi bi-check-circle-fill"></i> Setup complete.</div>'
+                                        : `<div class="alert alert-danger py-1 mb-0"><i class="bi bi-x-circle-fill"></i> Failed (exit ${info.exit_code})</div>`;
+                                } catch(e) {}
+                            } else {
+                                log.textContent += text + '\n';
+                                log.scrollTop = log.scrollHeight;
+                            }
+                        }
+                    }
+                    return pump();
+                });
+            }
+            return pump();
+        })
+        .catch(err => {
+            document.getElementById('setupOutput').style.display = 'block';
+            document.getElementById('setupLog').textContent = 'Error: ' + err.message;
+        });
+}
+</script>
 {% endblock %}

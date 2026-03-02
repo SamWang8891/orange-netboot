@@ -1,6 +1,9 @@
+name: orange-netboot
 services:
   netboot:
-    build: .
+    build:
+      context: .
+      no_cache: true
     container_name: orange-netboot
     restart: unless-stopped
     privileged: true

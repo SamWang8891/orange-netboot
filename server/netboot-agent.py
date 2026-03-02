@@ -143,6 +143,36 @@ class Handler(BaseHTTPRequestHandler):
             script = repo_dir / "server" / "setup-host.sh"
             self.stream_script(["bash", str(script)])
 
+        elif self.path == "/run/remove-rootfs":
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length)
+            try:
+                params = json.loads(body)
+            except Exception:
+                self.send_json(400, {"error": "Invalid JSON"})
+                return
+
+            node = params.get("node", "")
+            if not node or not re.fullmatch(r"[a-zA-Z0-9_-]+", node):
+                self.send_json(400, {"error": "Invalid node name"})
+                return
+
+            try:
+                result = subprocess.run(
+                    ["bash", "-c", f"rm -rf -- /srv/nfs/{node} && exportfs -ra"],
+                    capture_output=True, text=True, timeout=300,
+                )
+                ok = result.returncode == 0
+                self.send_json(200 if ok else 500, {
+                    "ok": ok,
+                    "exit_code": result.returncode,
+                    "output": (result.stdout + result.stderr)[-2000:],
+                })
+            except subprocess.TimeoutExpired:
+                self.send_json(500, {"error": "Timed out removing rootfs"})
+            except Exception as e:
+                self.send_json(500, {"error": str(e)})
+
         else:
             self.send_json(404, {"error": "Not found"})
 

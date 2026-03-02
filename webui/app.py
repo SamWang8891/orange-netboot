@@ -242,13 +242,10 @@ def deploy():
 
     if missing:
         images = get_images()
-        img_arg = images[0].name if images else "<armbian.img>"
-        flash(
-            f"Missing: {', '.join(missing)}. Run on the host:\n"
-            f"sudo ./server/deploy-rootfs.sh {img_arg} {node_name}"
-            + (f" {mac}" if mac else "") + f" {dtb_name}",
-            "warning",
-        )
+        if images:
+            flash(f"Missing: {', '.join(missing)}. Use the Deploy button to deploy.", "warning")
+        else:
+            flash(f"Missing: {', '.join(missing)}. Upload an image on the Images page, then use the Deploy button.", "warning")
 
     return redirect(url_for("node_detail", name=node_name))
 
@@ -377,11 +374,33 @@ def remove_node(name):
 
     nfs_path = NFS_DIR / name
     if nfs_path.exists():
-        flash(
-            f"TFTP + PXE config removed. Run on host to remove rootfs: "
-            f"sudo rm -rf /srv/nfs/{name} && sudo exportfs -ra",
-            "warning",
-        )
+        rootfs_removed = False
+        agent_token = _read_agent_token()
+        if agent_token:
+            try:
+                payload = json.dumps({"node": name}).encode()
+                req = urllib.request.Request(
+                    f"{AGENT_URL}/run/remove-rootfs",
+                    data=payload,
+                    headers={
+                        "Authorization": f"Bearer {agent_token}",
+                        "Content-Type": "application/json",
+                    },
+                )
+                resp = urllib.request.urlopen(req, timeout=60)
+                data = json.loads(resp.read())
+                rootfs_removed = data.get("ok", False)
+            except Exception:
+                pass
+
+        if rootfs_removed:
+            flash(f"Node '{name}' and NFS rootfs removed.", "success")
+        else:
+            flash(
+                f"TFTP + PXE config removed. Run on host to remove rootfs:\n"
+                f"sudo rm -rf /srv/nfs/{name} && sudo exportfs -ra",
+                "warning",
+            )
     else:
         flash(f"Node '{name}' removed.", "success")
     return redirect(url_for("index"))
@@ -528,6 +547,65 @@ def deploy_node(name):
     req = urllib.request.Request(
         f"{AGENT_URL}/run/deploy-rootfs",
         data=payload,
+        headers={
+            "Authorization": f"Bearer {agent_token}",
+            "Content-Type": "application/json",
+        },
+    )
+
+    def generate():
+        try:
+            resp = urllib.request.urlopen(req, timeout=600)
+            while True:
+                line = resp.readline()
+                if not line:
+                    break
+                yield line.decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as e:
+            body = e.read().decode(errors="replace")
+            yield f"data: Error {e.code}: {body}\n\n"
+            yield 'event: done\ndata: {"exit_code": 1}\n\n'
+        except Exception as e:
+            yield f"data: Error: {e}\n\n"
+            yield 'event: done\ndata: {"exit_code": 1}\n\n'
+
+    return Response(stream_with_context(generate()), content_type="text/event-stream")
+
+
+@app.route("/node/<name>/remove-rootfs", methods=["POST"])
+def remove_node_rootfs(name):
+    """Remove only the NFS rootfs via agent, keeping the node in the DB."""
+    agent_token = _read_agent_token()
+    if not agent_token:
+        return jsonify({"error": "Agent not available — is netboot-agent running?"}), 503
+    try:
+        payload = json.dumps({"node": name}).encode()
+        req = urllib.request.Request(
+            f"{AGENT_URL}/run/remove-rootfs",
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {agent_token}",
+                "Content-Type": "application/json",
+            },
+        )
+        resp = urllib.request.urlopen(req, timeout=60)
+        return jsonify(json.loads(resp.read()))
+    except urllib.error.HTTPError as e:
+        return jsonify({"error": e.read().decode(errors="replace")}), e.code
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/run-setup", methods=["POST"])
+def run_setup():
+    """Stream setup-host.sh output from the agent as SSE."""
+    agent_token = _read_agent_token()
+    if not agent_token:
+        return jsonify({"error": "Agent not available — is netboot-agent running?"}), 503
+
+    req = urllib.request.Request(
+        f"{AGENT_URL}/run/setup-host",
+        data=b"{}",
         headers={
             "Authorization": f"Bearer {agent_token}",
             "Content-Type": "application/json",

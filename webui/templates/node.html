@@ -74,9 +74,19 @@
 {# Warnings for missing items #}
 {% if not node.has_kernel or not node.has_initrd or not node.has_rootfs %}
 <div class="alert alert-warning">
-    <h6><i class="bi bi-exclamation-triangle"></i> Node not fully deployed</h6>
-    <p class="mb-2">Run this on the <strong>host</strong> to deploy boot files + rootfs:</p>
-    <pre class="bg-dark text-light p-2 rounded mb-0" style="font-size:0.85rem;">sudo ./server/deploy-rootfs.sh {{ image_hint or '&lt;armbian.img&gt;' }} {{ node.name }}{% if node.mac %} {{ node.mac }}{% endif %}</pre>
+    <div class="d-flex justify-content-between align-items-start">
+        <div class="flex-grow-1">
+            <h6><i class="bi bi-exclamation-triangle"></i> Node not fully deployed</h6>
+            <p class="mb-2">Deploy boot files + rootfs to this node:</p>
+            <pre class="bg-dark text-light p-2 rounded mb-0" style="font-size:0.85rem;">sudo ./server/deploy-rootfs.sh {{ image_hint or '&lt;armbian.img&gt;' }} {{ node.name }}{% if node.mac %} {{ node.mac }}{% endif %}</pre>
+        </div>
+        {% if images %}
+        <button class="btn btn-warning btn-sm ms-3 mt-1 flex-shrink-0"
+                data-bs-toggle="modal" data-bs-target="#deployModal">
+            <i class="bi bi-play-fill"></i> Run
+        </button>
+        {% endif %}
+    </div>
 </div>
 {% elif not node.has_pxe and not node.mac %}
 <div class="alert alert-info">
@@ -184,16 +194,54 @@
     <div class="col-md-6">
         <div class="card">
             <div class="card-header"><i class="bi bi-terminal"></i> Host Commands</div>
-            <div class="card-body">
-                <pre class="mb-0" style="font-size:0.8rem;"># Deploy/update rootfs + boot files
-sudo ./server/deploy-rootfs.sh {{ image_hint or '&lt;armbian.img&gt;' }} {{ node.name }}{% if node.mac %} {{ node.mac }}{% endif %}
-
-# SSH into running board
-ssh root@{{ node.ip or '&lt;board-ip&gt;' }}
-
-# Remove rootfs from host
-sudo rm -rf /srv/nfs/{{ node.name }}
-sudo exportfs -ra</pre>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0" style="font-size:0.85rem;">
+                    <tbody>
+                        <tr>
+                            <td class="ps-3 py-2">
+                                <div class="mono text-muted" style="font-size:0.8rem;">deploy-rootfs.sh {{ image_hint or '&lt;img&gt;' }} {{ node.name }}</div>
+                                <div style="font-size:0.75rem; color:#888;">Deploy / re-deploy boot files + rootfs</div>
+                            </td>
+                            <td class="pe-3 py-2 text-end align-middle">
+                                {% if images %}
+                                <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#deployModal">
+                                    <i class="bi bi-play-fill"></i> Run
+                                </button>
+                                {% else %}
+                                <span class="text-muted" style="font-size:0.75rem;">Upload image first</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="ps-3 py-2">
+                                <div class="mono text-muted" style="font-size:0.8rem;">rm -rf /srv/nfs/{{ node.name }} &amp;&amp; exportfs -ra</div>
+                                <div style="font-size:0.75rem; color:#888;">Remove NFS rootfs from host (keeps node in DB)</div>
+                            </td>
+                            <td class="pe-3 py-2 text-end align-middle">
+                                <button class="btn btn-sm btn-outline-danger" id="rmRootfsBtn"
+                                        onclick="removeRootfs('{{ node.name }}')" {% if not node.has_rootfs %}disabled{% endif %}>
+                                    <i class="bi bi-play-fill"></i> Run
+                                </button>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="ps-3 py-2">
+                                <div class="mono text-muted" style="font-size:0.8rem;">ssh root@{{ node.ip or '&lt;board-ip&gt;' }}</div>
+                                <div style="font-size:0.75rem; color:#888;">Open SSH terminal to node</div>
+                            </td>
+                            <td class="pe-3 py-2 text-end align-middle">
+                                {% if node.ip and node.has_rootfs %}
+                                <button class="btn btn-sm btn-outline-success" onclick="openTerminalFor('{{ node.name }}', '{{ node.ip }}')">
+                                    <i class="bi bi-terminal-fill"></i> Open
+                                </button>
+                                {% else %}
+                                <span class="text-muted" style="font-size:0.75rem;">Set IP + rootfs first</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+                <div id="rmRootfsResult" class="mx-3 mb-2" style="display:none;"></div>
             </div>
         </div>
     </div>
@@ -239,6 +287,35 @@ touch /srv/nfs/{{ node.name }}/boot/limit_1080p</pre>
 {% endblock %}
 
 {% block scripts %}
+<script>
+function removeRootfs(nodeName) {
+    if (!confirm('Remove /srv/nfs/' + nodeName + ' from the host? This cannot be undone.')) return;
+    const btn = document.getElementById('rmRootfsBtn');
+    const result = document.getElementById('rmRootfsResult');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    result.style.display = 'none';
+    fetch('/node/' + nodeName + '/remove-rootfs', {method: 'POST'})
+        .then(r => r.json())
+        .then(data => {
+            result.style.display = 'block';
+            if (data.ok) {
+                result.innerHTML = '<div class="alert alert-success py-1 mb-0"><i class="bi bi-check-circle-fill"></i> Rootfs removed.</div>';
+            } else {
+                result.innerHTML = '<div class="alert alert-danger py-1 mb-0"><i class="bi bi-x-circle-fill"></i> ' + (data.error || 'Failed') + '</div>';
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-play-fill"></i> Run';
+            }
+        })
+        .catch(err => {
+            result.style.display = 'block';
+            result.innerHTML = '<div class="alert alert-danger py-1 mb-0">' + err.message + '</div>';
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-play-fill"></i> Run';
+        });
+}
+</script>
+
 {% if images %}
 <script>
 function startDeploy() {
