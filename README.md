@@ -7,7 +7,7 @@ Boards boot from a **stock Armbian SD card** — no custom bootloader needed. U-
 ## Architecture
 
 ```
-┌─────────────────┐         ┌──────────────┐         ┌──────────────────────┐
+┌──────────────────┐         ┌──────────────┐         ┌──────────────────────┐
 │ Orange Pi        │  DHCP   │ pfSense      │         │ Server (VM/host)     │
 │                  │◄───────►│              │         │                      │
 │ Stock Armbian SD │         │ TFTP server ─┼────────►│ Docker container     │
@@ -16,7 +16,7 @@ Boards boot from a **stock Armbian SD card** — no custom bootloader needed. U-
 │ U-Boot PXE boot  │         └──────────────┘         │                      │
 │ finds config by  │  NFS                             │ Host                 │
 │ MAC address      │─────────────────────────────────►│ └─ NFS server        │
-└─────────────────┘                                   │    └─ /srv/nfs/<node>│
+└──────────────────┘                                  │    └─ /srv/nfs/<node>│
                                                       └──────────────────────┘
 ```
 
@@ -80,4 +80,4 @@ If you want a minimal SD card, use `make-netboot-sd.sh` (see `sdcard/README.md`)
 
 ## License
 
-MIT
+APACHE2
