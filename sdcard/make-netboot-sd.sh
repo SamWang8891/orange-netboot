@@ -106,7 +106,7 @@ TMPDIR=$(mktemp -d)
 cat > "$TMPDIR/boot.cmd" << 'BOOTCMD'
 echo ""
 echo "==============================="
-echo "  netboot-manager SD loader"
+echo "  orange-netboot SD loader"
 echo "==============================="
 echo ""
 

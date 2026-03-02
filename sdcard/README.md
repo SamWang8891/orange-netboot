@@ -29,7 +29,7 @@ sudo dd if=*-netboot-sd.img of=/dev/sdX bs=4M status=progress
 If you're not on Linux, use Docker to run the script. The image needs loop device access, so we use `--privileged`:
 
 ```bash
-# From the netboot-manager repo root:
+# From the orange-netboot repo root:
 
 # Build the helper image (one-time)
 docker build -t netboot-tools -f sdcard/Dockerfile.tools .

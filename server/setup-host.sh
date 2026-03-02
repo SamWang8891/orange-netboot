@@ -2,7 +2,7 @@
 # setup-host.sh — Install NFS server on the host (TFTP handled by Docker)
 set -euo pipefail
 
-echo "=== netboot-manager host setup ==="
+echo "=== orange-netboot host setup ==="
 echo "    (NFS server only — TFTP + web UI run in Docker)"
 
 [[ $EUID -ne 0 ]] && { echo "Error: Run as root"; exit 1; }

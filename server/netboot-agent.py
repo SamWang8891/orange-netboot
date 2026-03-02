@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""netboot-agent — host-side privileged helper for netboot-manager.
+"""netboot-agent — host-side privileged helper for orange-netboot.
 
 Runs as root on the host. Streams deploy-rootfs.sh / setup-host.sh output
 as Server-Sent Events (SSE).
@@ -154,7 +154,7 @@ def main():
     parser.add_argument(
         "--repo-dir",
         required=True,
-        help="Path to the netboot-manager repository root",
+        help="Path to the orange-netboot repository root",
     )
     parser.add_argument("--port", type=int, default=7777)
     parser.add_argument("--host", default="127.0.0.1")

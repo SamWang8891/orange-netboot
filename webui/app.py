@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""netboot-manager web UI — PXE/TFTP + NFS node management"""
+"""orange-netboot web UI — PXE/TFTP + NFS node management"""
 import json
 import os
 import paramiko

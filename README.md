@@ -1,4 +1,4 @@
-# netboot-manager
+# orange-netboot
 
 Network boot manager for ARM boards (Orange Pi, NanoPi, etc.) with a web UI.
 
@@ -26,8 +26,8 @@ Boards boot from a **stock Armbian SD card** — no custom bootloader needed. U-
 ### 1. Server Setup
 
 ```bash
-git clone https://github.com/SamWang8891/netboot-manager
-cd netboot-manager
+git clone https://github.com/SamWang8891/orange-netboot
+cd orange-netboot
 
 # Install NFS + netboot-agent on the host
 sudo ./server/setup-host.sh

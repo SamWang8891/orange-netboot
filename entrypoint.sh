@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-echo "=== netboot-manager ==="
+echo "=== orange-netboot ==="
 echo "TFTP dir: ${TFTP_DIR:-/srv/tftp}"
 echo "NFS dir:  ${NFS_DIR:-/srv/nfs}"
 

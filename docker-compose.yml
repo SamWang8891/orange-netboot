@@ -1,7 +1,7 @@
 services:
   netboot:
     build: .
-    container_name: netboot-manager
+    container_name: orange-netboot
     restart: unless-stopped
     privileged: true
     ports:
