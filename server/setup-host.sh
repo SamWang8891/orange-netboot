@@ -41,10 +41,16 @@ fi
 cp "$REPO_DIR/server/netboot-agent.py" /usr/local/bin/netboot-agent
 chmod 755 /usr/local/bin/netboot-agent
 
-# Create data dir and touch token file so Docker bind-mount works before first run
+# Generate agent token (do this before starting the agent)
 mkdir -p "$REPO_DIR/data"
-touch "$REPO_DIR/data/agent.token"
-chmod 600 "$REPO_DIR/data/agent.token"
+TOKEN_FILE="$REPO_DIR/data/agent.token"
+if [ ! -s "$TOKEN_FILE" ]; then
+    python3 -c "import secrets; print(secrets.token_urlsafe(32))" > "$TOKEN_FILE"
+    chmod 600 "$TOKEN_FILE"
+    echo "  Generated new agent token: $TOKEN_FILE"
+else
+    echo "  Keeping existing agent token: $TOKEN_FILE"
+fi
 
 # Write systemd unit (bake in REPO_DIR)
 cat > /etc/systemd/system/netboot-agent.service << EOF
@@ -54,7 +60,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/netboot-agent --repo-dir ${REPO_DIR} --host 127.0.0.1 --port 7777
+ExecStart=/usr/local/bin/netboot-agent --repo-dir ${REPO_DIR} --host 0.0.0.0 --port 7777
 Restart=always
 User=root
 StandardOutput=journal

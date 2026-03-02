@@ -79,7 +79,7 @@ Each board gets its own config by MAC address — completely independent rootfs 
 
 `setup-host.sh` installs a small stdlib-only HTTP daemon (`netboot-agent`) that runs as root on the host via systemd. The web UI calls it to perform operations that require host-level access.
 
-- Listens on `127.0.0.1:7777` (localhost only, not exposed externally)
+- Listens on `0.0.0.0:7777` — accessible from Docker containers via `host.docker.internal`; protected by token auth
 - All requests authenticated with a Bearer token in `data/agent.token` (chmod 600, bind-mounted read-only into Docker)
 - Streams `deploy-rootfs.sh` and `setup-host.sh` output as Server-Sent Events for live progress in the browser
 - Handles rootfs removal (`rm -rf /srv/nfs/<node> && exportfs -ra`) synchronously

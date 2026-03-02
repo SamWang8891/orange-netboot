@@ -12,7 +12,6 @@ import argparse
 import json
 import os
 import re
-import secrets
 import subprocess
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -22,16 +21,17 @@ repo_dir: Path
 token: str
 
 
-def load_or_create_token(path: Path) -> str:
-    if path.exists():
+def load_token(path: Path) -> str:
+    try:
         tok = path.read_text().strip()
-        if tok:
-            return tok
-    tok = secrets.token_urlsafe(32)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(tok + "\n")
-    os.chmod(path, 0o600)
-    print(f"[netboot-agent] Created token at {path}", flush=True)
+    except FileNotFoundError:
+        print(f"[netboot-agent] ERROR: token file not found: {path}", flush=True)
+        print(f"[netboot-agent] Run sudo ./server/setup-host.sh to generate it.", flush=True)
+        sys.exit(1)
+    if not tok:
+        print(f"[netboot-agent] ERROR: token file is empty: {path}", flush=True)
+        print(f"[netboot-agent] Run sudo ./server/setup-host.sh to generate it.", flush=True)
+        sys.exit(1)
     return tok
 
 
@@ -187,12 +187,12 @@ def main():
         help="Path to the orange-netboot repository root",
     )
     parser.add_argument("--port", type=int, default=7777)
-    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--host", default="0.0.0.0")
     args = parser.parse_args()
 
     repo_dir = Path(args.repo_dir).resolve()
     token_path = repo_dir / "data" / "agent.token"
-    token = load_or_create_token(token_path)
+    token = load_token(token_path)
 
     server = HTTPServer((args.host, args.port), Handler)
     print(f"[netboot-agent] Listening on {args.host}:{args.port}", flush=True)
