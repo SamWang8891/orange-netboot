@@ -6,6 +6,8 @@ import paramiko
 import shutil
 import subprocess
 import threading
+import logging
+import socket
 import time
 from datetime import datetime
 from flask import (
@@ -124,6 +126,9 @@ def get_nodes():
 
         hostname_file = nfs_node / "etc" / "hostname"
         node["hostname"] = hostname_file.read_text().strip() if hostname_file.exists() else name
+        node["hostname"] += "localhost"
+
+        print(node["hostname"])
 
         boot_cmd = tftp_node / "boot.cmd"
         node["boot_cmd"] = boot_cmd.read_text() if boot_cmd.exists() else None
@@ -375,23 +380,34 @@ def node_terminal(name):
 @sock.route("/ws/terminal/<name>")
 def terminal_ws(ws, name):
     """WebSocket endpoint that proxies to SSH on the node."""
-    db = load_nodes_db()
-    info = db.get(name, {})
-    ip = info.get("ip", "")
-    if not ip:
-        ws.send("\r\n\x1b[31mError: No IP address set for this node.\x1b[0m\r\n")
-        return
+    logging.info("Tried")
+    if name == "localhost":
+        ip = "host.docker.internal"
+    else:
+        db = load_nodes_db()
+        info = db.get(name, {})
+        ip = info.get("ip", "")
+        if not ip:
+            ws.send("\r\n\x1b[31mError: No IP address set for this node.\x1b[0m\r\n")
+            return
 
     # Get credentials from query params or defaults
-    username = request.args.get("user", "root")
-    password = request.args.get("pass", "1234")
+    username = request.args.get("user")
+    password = request.args.get("pass")
+    port = request.args.get("port")
+
+    try:
+        int(port)
+    except:
+        ws.send("Port is not number, quitting...\r\n")
+        return
 
     try:
         ws.send(f"\x1b[33mConnecting to {username}@{ip}...\x1b[0m\r\n")
 
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        client.connect(ip, username=username, password=password, timeout=10)
+        client.connect(ip, int(port), username=username, password=password, timeout=10)
 
         chan = client.invoke_shell(term="xterm-256color", width=120, height=40)
         chan.settimeout(0.1)
@@ -408,9 +424,12 @@ def terminal_ws(ws, name):
                     if not data:
                         break
                     ws.send(data.decode("utf-8", errors="replace"))
-                except paramiko.buffered_pipe.PipeTimeout:
+                except (paramiko.buffered_pipe.PipeTimeout, socket.timeout, TimeoutError):
+                    # It's just an idle timeout. Ignore it and keep listening!
                     continue
-                except Exception:
+                except Exception as e:
+                    # Real errors (like a severed connection) will break the loop
+                    print(f"SSH Read Error: {e}") # Helpful for debugging!
                     break
             try:
                 ws.send("\r\n\x1b[31mConnection closed.\x1b[0m\r\n")
@@ -424,11 +443,16 @@ def terminal_ws(ws, name):
         while True:
             try:
                 data = ws.receive(timeout=1)
+
+                # If data is None, it just means 1 second passed with no typing.
                 if data is None:
-                    break
+                    # Check if the SSH session was closed by the server
+                    if chan.exit_status_ready():
+                        break
+                    continue # Keep listening for user input
+
                 # Handle resize messages
                 if isinstance(data, str) and data.startswith("\x1b[8;"):
-                    # Parse resize: \x1b[8;rows;colst
                     try:
                         parts = data[4:-1].split(";")
                         rows, cols = int(parts[0]), int(parts[1])
@@ -437,16 +461,12 @@ def terminal_ws(ws, name):
                         pass
                 else:
                     chan.send(data)
-            except Exception:
-                break
 
-        stop_event.set()
-        chan.close()
-        client.close()
+            except Exception: # This will catch actual WebSocket disconnects
+                break
 
     except paramiko.AuthenticationException:
         ws.send(f"\r\n\x1b[31mAuthentication failed for {username}@{ip}\x1b[0m\r\n")
-        ws.send("\x1b[33mTry default password: 1234 or orangepi\x1b[0m\r\n")
     except paramiko.SSHException as e:
         ws.send(f"\r\n\x1b[31mSSH error: {e}\x1b[0m\r\n")
     except Exception as e:
@@ -460,6 +480,8 @@ def api_nodes():
 
 if __name__ == "__main__":
     import argparse
+
+    logging.basicConfig(level=logging.INFO)
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="0.0.0.0")

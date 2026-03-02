@@ -42,6 +42,7 @@
             <select id="termNodeSelect" class="form-select form-select-sm mono" style="width:140px;"></select>
             <input type="text" id="termUser" value="" class="form-control form-control-sm mono" style="width:80px;" placeholder="user">
             <input type="password" id="termPass" value="" class="form-control form-control-sm mono" style="width:100px;" placeholder="pass">
+            <input type="number" id="termPort" min="0" max="65535" step="1" value="22" class="form-control form-control-sm mono" style="width:80px;" placeholder="port">
             <button class="btn btn-sm btn-success" onclick="termConnect()"><i class="bi bi-play-fill"></i> Connect</button>
             <span id="termConnStatus" class="badge bg-secondary ms-1">Idle</span>
             <div class="ms-auto d-flex gap-1">
@@ -173,6 +174,13 @@
                     sel.appendChild(o);
                 }
             });
+
+            // Add localhost
+            const o = document.createElement('option');
+            o.value = "localhost";
+            o.textContent = `localhost`;
+            o.dataset.name = `localhost`;
+            sel.appendChild(o);
         });
     }
 
@@ -183,8 +191,16 @@
         const nodeName = opt.dataset.name || opt.textContent;
         const user = document.getElementById('termUser').value;
         const pass = document.getElementById('termPass').value;
+        const port = document.getElementById('termPort').value;
         const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const url = `${proto}//${location.host}/ws/terminal/${nodeName}?user=${encodeURIComponent(user)}&pass=${encodeURIComponent(pass)}`;
+        const url = `${proto}//${location.host}/ws/terminal/${nodeName}?user=${encodeURIComponent(user)}&pass=${encodeURIComponent(pass)}&port=${encodeURIComponent(port)}`;
+
+        const portValue = Number(port);
+
+        if (isNaN(portValue) || portValue < 0 || portValue > 65535) {
+            alert("Invalid port! Must be a number between 0 and 65535.");
+            return;
+        }
 
         if (termWs) termWs.close();
         if (term) term.clear();
