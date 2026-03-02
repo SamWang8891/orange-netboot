@@ -521,6 +521,22 @@ def _read_agent_token() -> str:
         return ""
 
 
+def _agent_token_error() -> str:
+    """Human-readable reason why the agent token is unavailable."""
+    if not AGENT_TOKEN_FILE.exists():
+        return (
+            f"Token file not found ({AGENT_TOKEN_FILE}). "
+            "Run sudo ./server/setup-host.sh on the host, then restart the container."
+        )
+    if AGENT_TOKEN_FILE.stat().st_size == 0:
+        return (
+            f"Token file is empty ({AGENT_TOKEN_FILE}). "
+            "The netboot-agent may not have started yet, or docker compose up ran before setup-host.sh."
+            " Restart the container after the agent is running."
+        )
+    return f"Could not read token from {AGENT_TOKEN_FILE}."
+
+
 @app.route("/api/agent-status")
 def agent_status():
     try:
@@ -541,7 +557,7 @@ def deploy_node(name):
 
     agent_token = _read_agent_token()
     if not agent_token:
-        return jsonify({"error": "Agent token not available — is netboot-agent running?"}), 503
+        return jsonify({"error": _agent_token_error()}), 503
 
     payload = json.dumps({"image": image, "node": node, "mac": mac, "dtb": dtb}).encode()
     req = urllib.request.Request(
@@ -577,7 +593,7 @@ def remove_node_rootfs(name):
     """Remove only the NFS rootfs via agent, keeping the node in the DB."""
     agent_token = _read_agent_token()
     if not agent_token:
-        return jsonify({"error": "Agent not available — is netboot-agent running?"}), 503
+        return jsonify({"error": _agent_token_error()}), 503
     try:
         payload = json.dumps({"node": name}).encode()
         req = urllib.request.Request(
@@ -601,7 +617,7 @@ def run_setup():
     """Stream setup-host.sh output from the agent as SSE."""
     agent_token = _read_agent_token()
     if not agent_token:
-        return jsonify({"error": "Agent not available — is netboot-agent running?"}), 503
+        return jsonify({"error": _agent_token_error()}), 503
 
     req = urllib.request.Request(
         f"{AGENT_URL}/run/setup-host",
