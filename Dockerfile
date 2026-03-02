@@ -17,13 +17,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 COPY webui/requirements.txt /tmp/requirements.txt
-RUN uv pip install --system --no-cache -r /tmp/requirements.txt
+RUN uv venv /app/.venv && uv pip install --no-cache -p /app/.venv/bin/python -r /tmp/requirements.txt
 
 COPY webui /app/
 COPY scripts /scripts/
 COPY sdcard/make-netboot-sd.sh /scripts/make-netboot-sd.sh
 
 WORKDIR /app
+ENV PATH="/app/.venv/bin:$PATH"
 
 EXPOSE 69/udp 8080
 
