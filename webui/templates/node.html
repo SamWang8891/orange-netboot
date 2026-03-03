@@ -246,24 +246,21 @@
         </div>
     </div>
 
-    <!-- Boot config files -->
     {% if node.has_rootfs %}
     <div class="col-md-6">
         <div class="card">
-            <div class="card-header"><i class="bi bi-sliders"></i> Boot Config Files</div>
-            <div class="card-body" style="font-size:0.85rem;">
-                <p class="text-muted mb-2">Drop files in the NFS boot directory to configure the board:</p>
-                <table class="table table-sm mb-2">
-                    <thead><tr><th>File</th><th>Effect</th></tr></thead>
+            <div class="card-header"><i class="bi bi-folder2-open"></i> System Files</div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0" style="font-size:0.85rem;">
                     <tbody>
-                        <tr><td><code>ssh</code></td><td>Enable SSH (first boot, then deleted)</td></tr>
-                        <tr><td><code>hostname.txt</code></td><td>Set hostname (write name inside)</td></tr>
-                        <tr><td><code>limit_1080p</code></td><td>Force HDMI to 1080p (persistent)</td></tr>
+                        <tr>
+                            <td class="ps-3 py-2">
+                                <div class="mono text-muted" style="font-size:0.8rem;">/srv/nfs/{{ node.name }}/</div>
+                                <div style="font-size:0.75rem; color:#888;">Node system root on the host</div>
+                            </td>
+                        </tr>
                     </tbody>
                 </table>
-                <pre class="bg-dark text-light p-2 rounded mb-0" style="font-size:0.8rem;">touch /srv/nfs/{{ node.name }}/boot/ssh
-echo "{{ node.name }}" > /srv/nfs/{{ node.name }}/boot/hostname.txt
-touch /srv/nfs/{{ node.name }}/boot/limit_1080p</pre>
             </div>
         </div>
     </div>
