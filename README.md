@@ -31,15 +31,14 @@ Boards boot from a **stock Armbian SD card** — no custom bootloader needed. U-
 git clone https://github.com/SamWang8891/orange-netboot
 cd orange-netboot
 
-# Install NFS + netboot-agent on the host (one-time)
-sudo ./server/setup-host.sh
+# Install host deps, detect server IP, build and start Docker
+./setup.sh
 
-# Start Docker (TFTP + Web UI)
-docker compose up -d
-
-# Open web UI
+# Open web UI (URL printed at the end of setup.sh)
 open http://YOUR_SERVER_IP:8080
 ```
+
+`setup.sh` runs `setup-host.sh`, auto-detects the server IP (skipping loopback and Docker interfaces), writes it to `.env`, then force-rebuilds and starts the containers.
 
 ### 2. Upload an Image
 
