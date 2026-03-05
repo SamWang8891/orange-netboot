@@ -175,6 +175,9 @@ label netboot
 def index():
     return render_template("index.html", nodes=get_nodes(), server_ip=get_server_ip())
 
+@app.route("/favicon.ico")
+def favicon():
+    return send_file("static/favicon.ico")
 
 @app.route("/setup")
 def setup():
